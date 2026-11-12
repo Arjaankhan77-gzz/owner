@@ -1,29 +1,86 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Computer Center Login</title><link rel="stylesheet" href="style.css">
+<title>Computer Center</title><link rel="stylesheet" href="style.css">
 </head><body>
-<div class="card">
-  <h2>Computer Center Login</h2>
-  <label>Student ID or Owner email</label>
-  <input id="id" autocomplete="username">
-  <label>Password</label>
-  <input id="pw" type="password" autocomplete="current-password">
-  <button id="go">Login</button>
-  <p id="msg" class="msg err"></p>
+<div class="wrap">
+  <div class="choose">
+    <button class="pick" id="bs"><span>🎓</span>Student</button>
+    <button class="pick" id="bo"><span>🔑</span>Owner</button>
+  </div>
+
+  <div class="glass panel" id="panel" hidden>
+    <h2 id="pt"></h2>
+    <div class="tabs" id="tabs"><button id="tl">Login</button><button class="ghost" id="tn">New Admission</button></div>
+
+    <div id="fLogin">
+      <input id="id" placeholder="ID" autocomplete="username">
+      <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+      <button id="login">Login</button>
+    </div>
+
+    <div id="fNew" hidden>
+      <input id="name" placeholder="Full name">
+      <input id="mob" type="tel" maxlength="10" placeholder="Mobile number (10 digits)">
+      <select id="course"></select>
+      <input id="npw" type="password" placeholder="Create password (min 6)">
+      <button id="ok">OK</button>
+    </div>
+
+    <div id="fin" hidden>
+      <h3>Your Student ID</h3>
+      <h1 id="newid"></h1>
+      <p>Save this ID. You need it with your password to log in.</p>
+      <button id="go">Continue</button>
+    </div>
+    <p class="msg" id="msg"></p>
+  </div>
 </div>
 <script type="module">
-import {auth,signInWithEmailAndPassword,onAuthStateChanged,signOut,roleOf,toEmail} from "./firebase.js";
-const msg=document.getElementById("msg");
-const go=async u=>{
+import {auth,db,signInWithEmailAndPassword,createUserWithEmailAndPassword,onAuthStateChanged,signOut,roleOf,toEmail,doc,setDoc} from "./firebase.js";
+const $=id=>document.getElementById(id);
+const COURSES=["RS-CIT","Tally","E-Mitra","Basic","Typing","Designing"];
+$("course").innerHTML=COURSES.map((c,i)=>`<option>${c}</option>`).join("");
+let busy=false;
+const msg=t=>$("msg").textContent=t;
+
+onAuthStateChanged(auth,async u=>{
+  if(!u||busy)return;
   const r=await roleOf(u);
-  if(r)return location.href=r+".html";
-  await signOut(auth);msg.textContent="Account not active.";
+  if(r)location.href=r+".html";else await signOut(auth);
+});
+
+function tab(t){
+  $("fLogin").hidden=t!=="login";$("fNew").hidden=t!=="new";msg("");
+  $("tl").className=t==="login"?"":"ghost";$("tn").className=t==="new"?"":"ghost";
+}
+$("bs").onclick=()=>{$("panel").hidden=false;$("pt").textContent="Student";$("tabs").hidden=false;tab("login");};
+$("bo").onclick=()=>{$("panel").hidden=false;$("pt").textContent="Owner";$("tabs").hidden=true;tab("login");};
+$("tl").onclick=()=>tab("login");
+$("tn").onclick=()=>tab("new");
+
+$("login").onclick=async()=>{
+  msg("");
+  try{await signInWithEmailAndPassword(auth,toEmail($("id").value),$("pw").value);}
+  catch{msg("Wrong ID or password.");}
 };
-onAuthStateChanged(auth,u=>u&&go(u));
-document.getElementById("go").onclick=async()=>{
-  msg.textContent="";
-  try{await signInWithEmailAndPassword(auth,toEmail(id.value),pw.value);}
-  catch{msg.textContent="Wrong ID or password.";}
+
+$("ok").onclick=async()=>{
+  const name=$("name").value.trim(),mob=$("mob").value.trim(),course=$("course").value,pw=$("npw").value;
+  if(!name||!/^\d{10}$/.test(mob)||pw.length<6)return msg("Enter name, 10-digit mobile and a 6+ character password.");
+  busy=true;msg("");
+  for(let i=0;i<8;i++){
+    const sid="S"+(1000+Math.floor(Math.random()*9000));
+    try{
+      const c=await createUserWithEmailAndPassword(auth,toEmail(sid),pw);
+      await setDoc(doc(db,"students",c.user.uid),{studentId:sid,name,mobile:mob,course,fee:0,active:true,created:Date.now()});
+      $("fNew").hidden=true;$("tabs").hidden=true;$("fin").hidden=false;$("newid").textContent=sid;
+      return;
+    }catch(e){
+      if(e.code!=="auth/email-already-in-use"){busy=false;return msg("Error: "+e.code);}
+    }
+  }
+  busy=false;msg("Please try again.");
 };
+$("go").onclick=()=>location.href="student.html";
 </script></body></html>

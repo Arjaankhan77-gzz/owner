@@ -1,17 +1,29 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
     function isOwner() {
-      return request.auth != null &&
-        exists(/databases/$(database)/documents/owners/$(request.auth.uid));
+      return signed() && exists(/databases/$(database)/documents/owners/$(request.auth.uid));
     }
     match /owners/{id} {
-      allow read: if request.auth != null && request.auth.uid == id;
+      allow read: if signed() && request.auth.uid == id;
       allow write: if false;
     }
-    match /students/{id} {
-      allow read: if isOwner() || (request.auth != null && request.auth.uid == id);
+    match /settings/{id} {
+      allow read: if signed();
       allow write: if isOwner();
+    }
+    match /students/{id} {
+      allow read: if isOwner() || (signed() && request.auth.uid == id);
+      allow create: if isOwner() || (signed() && request.auth.uid == id
+        && request.resource.data.active == true && request.resource.data.fee == 0
+        && request.resource.data.keys().hasOnly(['studentId','name','mobile','course','fee','active','created']));
+      allow update, delete: if isOwner();
+      match /attendance/{a} {
+        allow read: if isOwner() || (signed() && request.auth.uid == id);
+        allow create: if signed() && request.auth.uid == id;
+        allow delete: if isOwner();
+      }
     }
   }
 }

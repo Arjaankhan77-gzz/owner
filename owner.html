@@ -3,55 +3,94 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Owner Dashboard</title><link rel="stylesheet" href="style.css">
 </head><body>
-<div class="bar"><h1>Owner Dashboard</h1><button class="out" id="out">Logout</button></div>
+<div class="wrap">
+  <div class="bar"><h1>Owner Dashboard</h1><button class="ghost" id="out">Logout</button></div>
 
-<div class="card wide">
-  <h2>Add Student</h2>
-  <input id="name" placeholder="Full name">
-  <input id="sid" placeholder="Student ID (e.g. S101)">
-  <input id="pw" type="password" placeholder="Password (min 6)">
-  <input id="course" placeholder="Course">
-  <input id="fee" type="number" placeholder="Fee">
-  <button id="add">Create Student</button>
-  <p id="msg" class="msg"></p>
+  <div class="glass">
+    <h3>Center location</h3>
+    <p id="loc">Not set</p>
+    <input id="rad" type="number" value="50" placeholder="Radius in metres">
+    <button id="setloc">Save my current location</button>
+    <button class="ghost" id="setrad">Save radius only</button>
+    <p><small>Stand at the computer center, then press the first button.</small></p>
+    <p class="msg" id="lm"></p>
+  </div>
+
+  <div class="glass">
+    <h3>Add student</h3>
+    <input id="name" placeholder="Full name">
+    <input id="mob" type="tel" maxlength="10" placeholder="Mobile (10 digits)">
+    <select id="course"></select>
+    <input id="sid" placeholder="Student ID (e.g. S101)">
+    <input id="pw" type="password" placeholder="Password (min 6)">
+    <input id="fee" type="number" placeholder="Fee">
+    <button id="add">Create Student</button>
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <div class="glass">
+    <h3>Students (<span id="count">0</span>)</h3>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Name</th><th>Mobile</th><th>Course</th><th>Fee</th><th></th></tr></thead><tbody id="list"></tbody></table></div>
+  </div>
 </div>
-
-<div class="card wide">
-  <h2>Students (<span id="count">0</span>)</h2>
-  <table><thead><tr><th>ID</th><th>Name</th><th>Course</th><th>Fee</th><th></th></tr></thead>
-  <tbody id="list"></tbody></table>
-</div>
-
+<dialog id="dlg"><h3 id="dt"></h3><div id="dl"></div><br><button id="dc">Close</button></dialog>
 <script type="module">
-import {db,guard,logout,createAuthUser,toEmail,doc,setDoc,deleteDoc,collection,getDocs} from "./firebase.js";
+import {db,guard,logout,createAuthUser,toEmail,doc,setDoc,getDoc,deleteDoc,collection,getDocs} from "./firebase.js";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
-$("out").onclick=logout;
+const COURSES=["RS-CIT","Tally","E-Mitra","Basic","Typing","Designing"];
+$("course").innerHTML=COURSES.map(c=>`<option>${c}</option>`).join("");
+$("out").onclick=logout;$("dc").onclick=()=>$("dlg").close();
+let center=null;
+
+async function loadLoc(){
+  center=(await getDoc(doc(db,"settings","center"))).data()||null;
+  $("loc").textContent=center?`Saved: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)} · radius ${center.radius} m`:"Not set";
+}
+const getPos=()=>new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:15000}));
+$("setloc").onclick=async()=>{
+  $("lm").textContent="Getting location...";
+  try{
+    const p=await getPos();
+    await setDoc(doc(db,"settings","center"),{lat:p.coords.latitude,lng:p.coords.longitude,radius:Number($("rad").value)||50});
+    $("lm").textContent="";loadLoc();
+  }catch{$("lm").textContent="Allow location and try again.";}
+};
+$("setrad").onclick=async()=>{
+  if(!center)return $("lm").textContent="Save the location first.";
+  await setDoc(doc(db,"settings","center"),{...center,radius:Number($("rad").value)||50});
+  $("lm").textContent="";loadLoc();
+};
 
 async function load(){
   const s=await getDocs(collection(db,"students"));
   $("count").textContent=s.size;
   $("list").innerHTML=s.docs.map(d=>{const x=d.data();
-    return `<tr><td>${esc(x.studentId)}</td><td>${esc(x.name)}</td><td>${esc(x.course)}</td><td>${esc(x.fee)}</td>
-    <td><button class="del" data-id="${d.id}">Delete</button></td></tr>`}).join("");
+    return `<tr><td>${esc(x.studentId)}</td><td>${esc(x.name)}</td><td>${esc(x.mobile)}</td><td>${esc(x.course)}</td><td>${esc(x.fee)}</td>
+    <td><button class="sm" data-a="${d.id}" data-n="${esc(x.name)}">Attendance</button> <button class="del" data-d="${d.id}">Delete</button></td></tr>`}).join("");
 }
-
 $("list").onclick=async e=>{
-  const id=e.target.dataset.id;
-  if(id&&confirm("Delete this student?")){await deleteDoc(doc(db,"students",id));load();}
+  const {a,n,d}=e.target.dataset;
+  if(d&&confirm("Delete this student?")){await deleteDoc(doc(db,"students",d));load();}
+  if(a){
+    const r=(await getDocs(collection(db,"students",a,"attendance"))).docs.map(x=>x.data().t).sort((p,q)=>q-p);
+    $("dt").textContent=n+" · "+r.length+" present";
+    $("dl").innerHTML=r.map(t=>`<p>${new Date(t).toLocaleString()}</p>`).join("")||"<p>No attendance yet.</p>";
+    $("dlg").showModal();
+  }
 };
 
 $("add").onclick=async()=>{
   const m=$("msg");m.className="msg";m.textContent="";
-  const studentId=$("sid").value.trim();
-  if(!$("name").value||!studentId||$("pw").value.length<6){m.className="msg err";m.textContent="Fill name, ID and a 6+ char password.";return;}
+  const studentId=$("sid").value.trim(),name=$("name").value.trim(),mobile=$("mob").value.trim();
+  if(!name||!studentId||$("pw").value.length<6){m.textContent="Fill name, ID and a 6+ character password.";return;}
   try{
     const uid=await createAuthUser(toEmail(studentId),$("pw").value);
-    await setDoc(doc(db,"students",uid),{studentId,name:$("name").value.trim(),course:$("course").value.trim(),fee:Number($("fee").value)||0,active:true,created:Date.now()});
+    await setDoc(doc(db,"students",uid),{studentId,name,mobile,course:$("course").value,fee:Number($("fee").value)||0,active:true,created:Date.now()});
     m.className="msg ok";m.textContent="Student created.";
-    ["name","sid","pw","course","fee"].forEach(i=>$(i).value="");load();
-  }catch(err){m.className="msg err";m.textContent=err.code==="auth/email-already-in-use"?"This ID already exists.":"Error: "+err.code;}
+    ["name","mob","sid","pw","fee"].forEach(i=>$(i).value="");load();
+  }catch(err){m.textContent=err.code==="auth/email-already-in-use"?"This ID already exists.":"Error: "+err.code;}
 };
 
-guard("owner",load);
+guard("owner",()=>{load();loadLoc();});
 </script></body></html>

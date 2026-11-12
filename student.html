@@ -1,21 +1,100 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Student Dashboard</title><link rel="stylesheet" href="style.css">
+<title>My Attendance</title><link rel="stylesheet" href="style.css">
 </head><body>
-<div class="bar"><h1>Student Dashboard</h1><button class="out" id="out">Logout</button></div>
-<div class="card">
-  <h2>My Profile</h2>
-  <p><b>Name:</b> <span id="n"></span></p>
-  <p><b>ID:</b> <span id="i"></span></p>
-  <p><b>Course:</b> <span id="c"></span></p>
-  <p><b>Fee:</b> <span id="f"></span></p>
+<div class="lock" id="lock" hidden>
+  <h2>Location is required</h2>
+  <p>Attendance needs location access. Allow location for this site, then open the app again.</p>
+  <button id="exit">Exit</button>
+</div>
+<div class="wrap">
+  <div class="bar"><div><h2 id="nm"></h2><small>ID: <span id="sid"></span> · <span id="crs"></span></small></div><button class="ghost" id="out">Logout</button></div>
+
+  <div class="stats glass">
+    <div class="stat"><small>Present days</small><b id="s1">0</b></div>
+    <div class="stat"><small>Attendance</small><b id="s2">0%</b></div>
+    <div class="stat"><small>Days left</small><b id="s3">-</b></div>
+  </div>
+
+  <div class="glass">
+    <h3>Mark attendance</h3>
+    <p class="msg" id="st"></p>
+    <button id="chk">Check again</button>
+  </div>
+
+  <div class="glass">
+    <div class="bar"><button class="ghost sm" id="pv">‹</button><h3 id="mn" style="margin:0"></h3><button class="ghost sm" id="nx">›</button></div>
+    <div class="cal" id="cal"></div>
+    <p><small>✓ present · ✕ absent · gold = last day</small></p>
+  </div>
+
+  <div class="glass"><h3>Recent attendance</h3><div id="hist"></div></div>
 </div>
 <script type="module">
-import {db,guard,logout,doc,getDoc} from "./firebase.js";
-document.getElementById("out").onclick=logout;
+import {db,guard,logout,doc,getDoc,setDoc,collection,getDocs} from "./firebase.js";
+const $=id=>document.getElementById(id);
+const DUR={"RS-CIT":[3,15]}; // [months, days]. Add other courses here
+const H6=6*36e5;
+$("out").onclick=logout;$("exit").onclick=()=>{logout();window.close();};
+const key=d=>d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate();
+const dist=(a,b,c,d)=>{const r=x=>x*Math.PI/180,R=6371000,dl=r(c-a),dn=r(d-b);
+  return 2*R*Math.asin(Math.sqrt(Math.sin(dl/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dn/2)**2));};
+const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:15000,maximumAge:0}):no({code:2}));
+
 guard("student",async u=>{
-  const x=(await getDoc(doc(db,"students",u.uid))).data();
-  n.textContent=x.name;i.textContent=x.studentId;c.textContent=x.course;f.textContent=x.fee;
+  const s=(await getDoc(doc(db,"students",u.uid))).data();
+  $("nm").textContent=s.name;$("sid").textContent=s.studentId;$("crs").textContent=s.course;
+  let rows=[],view=new Date();view.setDate(1);
+
+  const loadAtt=async()=>{rows=(await getDocs(collection(db,"students",u.uid,"attendance"))).docs.map(d=>d.data().t).sort((a,b)=>a-b);};
+
+  function render(){
+    const join=new Date(s.created);join.setHours(0,0,0,0);
+    const today=new Date();today.setHours(0,0,0,0);
+    const dur=DUR[s.course];let end=null;
+    if(dur){end=new Date(join);end.setMonth(end.getMonth()+dur[0]);end.setDate(end.getDate()+dur[1]);}
+    const pres=new Set(rows.map(t=>key(new Date(t))));
+    const tot=Math.max(1,Math.round((Math.min(today,end||today)-join)/864e5)+1);
+    $("s1").textContent=pres.size;
+    $("s2").textContent=Math.min(100,Math.round(pres.size/tot*100))+"%";
+    $("s3").textContent=end?Math.max(0,Math.round((end-today)/864e5)):"-";
+    const y=view.getFullYear(),m=view.getMonth();
+    $("mn").textContent=view.toLocaleString("en",{month:"long",year:"numeric"});
+    let h=["S","M","T","W","T","F","S"].map(d=>`<div class="h">${d}</div>`).join("");
+    h+="<div></div>".repeat(new Date(y,m,1).getDay());
+    for(let d=1;d<=new Date(y,m+1,0).getDate();d++){
+      const dt=new Date(y,m,d);let c="",mk="";
+      if(pres.has(key(dt))){c="p";mk="✓";}
+      else if(dt>=join&&dt<today&&(!end||dt<=end)){c="x";mk="✕";}
+      if(+dt==+today)c+=" td";
+      if(end&&+dt==+end)c+=" end";
+      h+=`<div class="${c}">${d}<small>${mk}</small></div>`;
+    }
+    $("cal").innerHTML=h;
+    $("hist").innerHTML=rows.slice(-8).reverse().map(t=>`<p>${new Date(t).toLocaleString()}</p>`).join("")||"<p>No attendance yet.</p>";
+  }
+  $("pv").onclick=()=>{view.setMonth(view.getMonth()-1);render();};
+  $("nx").onclick=()=>{view.setMonth(view.getMonth()+1);render();};
+
+  async function check(){
+    const st=$("st");st.className="msg";st.textContent="Checking location...";
+    let p;
+    try{p=await getPos();}
+    catch(e){if(e.code===1){$("lock").hidden=false;return;}st.textContent="Turn on GPS and try again.";return;}
+    const c=(await getDoc(doc(db,"settings","center"))).data();
+    if(!c){st.textContent="Owner has not set the center location yet.";return;}
+    if(p.coords.accuracy>100){st.textContent="GPS is weak ("+Math.round(p.coords.accuracy)+" m). Try again outside.";return;}
+    const d=dist(p.coords.latitude,p.coords.longitude,c.lat,c.lng);
+    if(d>c.radius){st.textContent="You are "+Math.round(d)+" m away. Come within "+c.radius+" m.";return;}
+    const wait=(rows.length?rows[rows.length-1]:0)+H6-Date.now();
+    if(wait>0){st.className="msg ok";st.textContent="Already marked. Next in "+Math.floor(wait/36e5)+"h "+Math.ceil(wait%36e5/6e4)+"m.";return;}
+    const t=Date.now();
+    await setDoc(doc(db,"students",u.uid,"attendance",String(t)),{t,d:Math.round(d)});
+    st.className="msg ok";st.textContent="Present marked at "+new Date(t).toLocaleTimeString()+" ✓";
+    await loadAtt();render();
+  }
+  $("chk").onclick=check;
+  await loadAtt();render();check();
 });
 </script></body></html>
