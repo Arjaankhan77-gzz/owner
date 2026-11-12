@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Owner Dashboard</title><link rel="stylesheet" href="style.css">
+</head><body>
+<div class="bar"><h1>Owner Dashboard</h1><button class="out" id="out">Logout</button></div>
+
+<div class="card wide">
+  <h2>Add Student</h2>
+  <input id="name" placeholder="Full name">
+  <input id="sid" placeholder="Student ID (e.g. S101)">
+  <input id="pw" type="password" placeholder="Password (min 6)">
+  <input id="course" placeholder="Course">
+  <input id="fee" type="number" placeholder="Fee">
+  <button id="add">Create Student</button>
+  <p id="msg" class="msg"></p>
+</div>
+
+<div class="card wide">
+  <h2>Students (<span id="count">0</span>)</h2>
+  <table><thead><tr><th>ID</th><th>Name</th><th>Course</th><th>Fee</th><th></th></tr></thead>
+  <tbody id="list"></tbody></table>
+</div>
+
+<script type="module">
+import {db,guard,logout,createAuthUser,toEmail,doc,setDoc,deleteDoc,collection,getDocs} from "./firebase.js";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+$("out").onclick=logout;
+
+async function load(){
+  const s=await getDocs(collection(db,"students"));
+  $("count").textContent=s.size;
+  $("list").innerHTML=s.docs.map(d=>{const x=d.data();
+    return `<tr><td>${esc(x.studentId)}</td><td>${esc(x.name)}</td><td>${esc(x.course)}</td><td>${esc(x.fee)}</td>
+    <td><button class="del" data-id="${d.id}">Delete</button></td></tr>`}).join("");
+}
+
+$("list").onclick=async e=>{
+  const id=e.target.dataset.id;
+  if(id&&confirm("Delete this student?")){await deleteDoc(doc(db,"students",id));load();}
+};
+
+$("add").onclick=async()=>{
+  const m=$("msg");m.className="msg";m.textContent="";
+  const studentId=$("sid").value.trim();
+  if(!$("name").value||!studentId||$("pw").value.length<6){m.className="msg err";m.textContent="Fill name, ID and a 6+ char password.";return;}
+  try{
+    const uid=await createAuthUser(toEmail(studentId),$("pw").value);
+    await setDoc(doc(db,"students",uid),{studentId,name:$("name").value.trim(),course:$("course").value.trim(),fee:Number($("fee").value)||0,active:true,created:Date.now()});
+    m.className="msg ok";m.textContent="Student created.";
+    ["name","sid","pw","course","fee"].forEach(i=>$(i).value="");load();
+  }catch(err){m.className="msg err";m.textContent=err.code==="auth/email-already-in-use"?"This ID already exists.":"Error: "+err.code;}
+};
+
+guard("owner",load);
+</script></body></html>

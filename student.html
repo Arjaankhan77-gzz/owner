@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Student Dashboard</title><link rel="stylesheet" href="style.css">
+</head><body>
+<div class="bar"><h1>Student Dashboard</h1><button class="out" id="out">Logout</button></div>
+<div class="card">
+  <h2>My Profile</h2>
+  <p><b>Name:</b> <span id="n"></span></p>
+  <p><b>ID:</b> <span id="i"></span></p>
+  <p><b>Course:</b> <span id="c"></span></p>
+  <p><b>Fee:</b> <span id="f"></span></p>
+</div>
+<script type="module">
+import {db,guard,logout,doc,getDoc} from "./firebase.js";
+document.getElementById("out").onclick=logout;
+guard("student",async u=>{
+  const x=(await getDoc(doc(db,"students",u.uid))).data();
+  n.textContent=x.name;i.textContent=x.studentId;c.textContent=x.course;f.textContent=x.fee;
+});
+</script></body></html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Computer Center Login</title><link rel="stylesheet" href="style.css">
+</head><body>
+<div class="card">
+  <h2>Computer Center Login</h2>
+  <label>Student ID or Owner email</label>
+  <input id="id" autocomplete="username">
+  <label>Password</label>
+  <input id="pw" type="password" autocomplete="current-password">
+  <button id="go">Login</button>
+  <p id="msg" class="msg err"></p>
+</div>
+<script type="module">
+import {auth,signInWithEmailAndPassword,onAuthStateChanged,signOut,roleOf,toEmail} from "./firebase.js";
+const msg=document.getElementById("msg");
+const go=async u=>{
+  const r=await roleOf(u);
+  if(r)return location.href=r+".html";
+  await signOut(auth);msg.textContent="Account not active.";
+};
+onAuthStateChanged(auth,u=>u&&go(u));
+document.getElementById("go").onclick=async()=>{
+  msg.textContent="";
+  try{await signInWithEmailAndPassword(auth,toEmail(id.value),pw.value);}
+  catch{msg.textContent="Wrong ID or password.";}
+};
+</script></body></html>
